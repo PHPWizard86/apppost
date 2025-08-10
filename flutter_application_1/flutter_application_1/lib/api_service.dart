@@ -7,9 +7,14 @@ import 'post.dart'; // مدل Post را وارد می‌کند
 class ApiService {
   // آدرس پایه API شما
   static const String baseUrl = 'https://gtalk.ir/app/api.php';
+  // presence از طریق همین api.php با اکشن heartbeat/logout مدیریت می‌شود
 
   // متد ورود کاربر
   static Future<User?> login(String username, String password) async {
+    try {
+      print('Attempting login for username: $username');
+      print('API URL: $baseUrl');
+      
     final response = await http.post(
       Uri.parse(baseUrl),
       headers: {'Content-Type': 'application/json'},
@@ -20,21 +25,83 @@ class ApiService {
       }),
     );
 
+      print('Response status code: ${response.statusCode}');
+      print('Response body: ${response.body}');
+
     // بررسی پاسخ سرور
-    if (response.statusCode != 200 || response.body.isEmpty) {
-      throw "پاسخ سرور معتبر نیست. لطفاً سرور را بررسی کنید.";
+      if (response.statusCode != 200) {
+        throw "خطای HTTP: ${response.statusCode} - ${response.reasonPhrase}";
+      }
+      
+      if (response.body.isEmpty) {
+        throw "پاسخ سرور خالی است";
     }
 
     final data = jsonDecode(response.body);
+      print('Parsed response data: $data');
 
     // بررسی موفقیت‌آمیز بودن ورود و وجود توکن
     if (data['success'] == true && data['token'] != null) {
+        print('Login successful, token received');
       // استفاده از factory constructor مخصوص ورود
       return User.fromLoginJson(data['user'], data['token']);
     } else {
       // نمایش پیام خطا در صورت ناموفق بودن ورود
-      throw data['message'] ?? 'خطا در ورود';
+        final errorMessage = data['message'] ?? data['error'] ?? 'خطا در ورود';
+        print('Login failed: $errorMessage');
+        throw errorMessage;
+      }
+    } catch (e) {
+      print('Exception during login: $e');
+      if (e.toString().contains('SocketException') || e.toString().contains('Connection refused')) {
+        throw "خطا در اتصال به سرور. لطفاً اتصال اینترنت خود را بررسی کنید.";
+      } else if (e.toString().contains('TimeoutException')) {
+        throw "زمان اتصال به پایان رسید. لطفاً دوباره تلاش کنید.";
+      } else {
+        throw e.toString();
+      }
     }
+  }
+
+  // بروزرسانی حضور کاربر (heartbeat)
+  static Future<void> pingPresence({
+    required String token,
+    required int userId,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'action': 'heartbeat',
+        }),
+      );
+      if (response.statusCode != 200) {
+        throw 'heartbeat http ${response.statusCode}';
+      }
+    } catch (e) {
+      // Log error but don't throw to avoid breaking the app
+      print('pingPresence error: $e');
+    }
+  }
+
+  // خروج کاربر و آفلاین کردن وضعیت
+  static Future<void> logout({required String token, required int userId}) async {
+    try {
+      await http.post(
+        Uri.parse(baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'action': 'logout',
+        }),
+      );
+    } catch (_) {}
   }
 
   // متد ایجاد کاربر جدید (فقط برای مدیران)
@@ -80,14 +147,16 @@ class ApiService {
 
   // متد دریافت لیست کاربران
   static Future<List<User>> getUsers(String adminToken) async {
+    final uri = Uri.parse('$baseUrl?action=get_users&token=$adminToken');
     final response = await http.get(
-      Uri.parse('$baseUrl?action=get_users'),
+      uri,
       headers: {
-        'Authorization':
-            'Bearer $adminToken', // ارسال توکن مدیر برای احراز هویت
-        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $adminToken',
       },
     );
+
+    print('getUsers response.body:');
+    print(response.body);
 
     // بررسی پاسخ سرور
     if (response.statusCode != 200 || response.body.isEmpty) {
@@ -111,6 +180,9 @@ class ApiService {
   static Future<List<Post>> getPosts() async {
     // این متد نیازی به توکن احراز هویت ندارد، اما اگر پست‌ها نیاز به لاگین برای نمایش دارند، باید توکن را اضافه کنید.
     final response = await http.get(Uri.parse('$baseUrl?action=get_posts'));
+
+    print('getPosts response.body:');
+    print(response.body);
 
     // بررسی پاسخ سرور
     if (response.statusCode != 200 || response.body.isEmpty) {
@@ -206,7 +278,9 @@ class ApiService {
     try {
       final host = Uri.parse(siteUrl).host;
       // ساخت رشته هش برای احراز هویت با پلاگین وردپرس
-      final hashString = '1234$host' + '6789';
+      final hashString =
+          '1234$host'
+          '6789';
       final hash = md5.convert(utf8.encode(hashString)).toString();
 
       final uri = Uri.parse(
@@ -249,7 +323,9 @@ class ApiService {
     final uri = Uri.parse('$siteUrl/wp-admin/admin-ajax.php?action=mep_api');
     final host = Uri.parse(siteUrl).host;
     // ساخت رشته هش برای احراز هویت با پلاگین وردپرس
-    final hashString = '1234$host' + '6789';
+    final hashString =
+        '1234$host'
+        '6789';
     final hash = md5.convert(utf8.encode(hashString)).toString();
 
     try {

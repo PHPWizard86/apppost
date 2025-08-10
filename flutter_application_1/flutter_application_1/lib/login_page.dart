@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'api_service.dart';
+import 'session_manager.dart';
 import 'user.dart';
 
 class LoginPage extends StatefulWidget {
@@ -66,6 +67,7 @@ class _LoginPageState extends State<LoginPage>
       if (user == null) {
         // نمایش پیام خطا یا مدیریت حالت لاگین ناموفق
       } else {
+        await SessionManager.saveSession(user);
         widget.onLogin(user);
       }
     } catch (e) {
@@ -80,14 +82,24 @@ class _LoginPageState extends State<LoginPage>
   }
 
   String _getErrorMessage(String error) {
-    if (error.contains('network')) {
+    print('Error in _getErrorMessage: $error');
+    
+    if (error.contains('network') || error.contains('SocketException') || error.contains('Connection refused')) {
       return 'خطا در اتصال به شبکه. لطفاً اتصال اینترنت خود را بررسی کنید.';
     } else if (error.contains('401') || error.contains('unauthorized')) {
       return 'نام کاربری یا رمز عبور اشتباه است.';
-    } else if (error.contains('timeout')) {
+    } else if (error.contains('timeout') || error.contains('TimeoutException')) {
       return 'زمان اتصال به پایان رسید. دوباره تلاش کنید.';
+    } else if (error.contains('خطای HTTP:')) {
+      return error; // نمایش خطای HTTP دقیق
+    } else if (error.contains('پاسخ سرور خالی')) {
+      return 'سرور پاسخ خالی ارسال کرده است.';
+    } else if (error.contains('خطا در ورود')) {
+      return error; // نمایش پیام خطای سرور
     }
-    return 'خطای غیرمنتظره‌ای رخ داد. لطفاً دوباره تلاش کنید.';
+    
+    // برای خطاهای دیگر، پیام کامل را نمایش دهید
+    return 'خطا: $error';
   }
 
   @override
